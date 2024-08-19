@@ -5,7 +5,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y python3-opencv libglib2.0-0 libsm6 libxext6 libxrender-dev && rm -rf /var/lib/apt/lists/*
 
-RUN  pip install -U pip && pip install onnxruntime && pip install pix2text
+RUN  pip install -U pip && pip install onnxruntime && pip install pix2text pydantic fastapi python-multipart uvicorn
 
 RUN pip install pix2text
 
