@@ -11,6 +11,7 @@ from functools import cmp_to_key
 from pathlib import Path
 import logging
 import platform
+import subprocess
 from typing import Union, List, Any, Dict
 from collections import Counter, defaultdict
 
@@ -49,6 +50,22 @@ def set_logger(log_file=None, log_level=logging.INFO, log_file_level=logging.NOT
         file_handler.setFormatter(log_format)
         logger.addHandler(file_handler)
     return logger
+
+
+def custom_deepcopy(value):
+    if isinstance(value, dict):
+        return {key: custom_deepcopy(val) for key, val in value.items()}
+    elif isinstance(value, list):
+        return [custom_deepcopy(item) for item in value]
+    elif isinstance(value, tuple):
+        return tuple([custom_deepcopy(item) for item in value])
+    elif isinstance(value, set):
+        return set([custom_deepcopy(item) for item in value])
+    else:
+        try:
+            return deepcopy(value)
+        except TypeError:
+            return value  # Return the original value if it cannot be deep copied
 
 
 def select_device(device) -> str:
@@ -135,6 +152,52 @@ def read_tsv_file(fp, sep='\t', img_folder=None, mode='eval'):
     return (img_fp_list, labels_list) if mode != 'test' else (img_fp_list, None)
 
 
+def get_average_color(img):
+    # Convert image to numpy array
+    img_array = np.array(img)
+    # Get average color, ignoring fully transparent pixels
+    if img_array.shape[2] == 4:  # RGBA
+        alpha = img_array[:,:,3]
+        rgb = img_array[:,:,:3]
+        mask = alpha > 0
+        if mask.any():
+            avg_color = rgb[mask].mean(axis=0)
+        else:
+            avg_color = rgb.mean(axis=(0,1))
+    else:  # RGB
+        avg_color = img_array.mean(axis=(0,1))
+    return tuple(map(int, avg_color))
+
+
+def get_contrasting_color(color):
+    return tuple(255 - c for c in color)
+
+
+def convert_transparent_to_contrasting(img: Image.Image):
+    """
+    Convert transparent pixels to a contrasting color.
+    """
+    # Check if the image has an alpha channel
+    if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+        # Get average color of non-transparent pixels
+        avg_color = get_average_color(img)
+
+        # Get contrasting color for background
+        bg_color = get_contrasting_color(avg_color)
+
+        # Create a new background image with the contrasting color
+        background = Image.new('RGBA', img.size, bg_color)
+
+        # Paste the image on the background.
+        # If the image has an alpha channel, it will be used as a mask
+        background.paste(img, (0, 0), img)
+
+        # Convert to RGB (removes alpha channel)
+        return background.convert('RGB')
+
+    return img.convert('RGB')
+
+
 def read_img(
     path: Union[str, Path], return_type='Tensor'
 ) -> Union[Image.Image, np.ndarray, torch.Tensor]:
@@ -149,10 +212,11 @@ def read_img(
     """
     assert return_type in ('Tensor', 'ndarray', 'Image')
     img = Image.open(path)
-    img = ImageOps.exif_transpose(img).convert('RGB')  # 识别旋转后的图片（pillow不会自动识别）
+    img = ImageOps.exif_transpose(img)  # 识别旋转后的图片（pillow不会自动识别）
+    img = convert_transparent_to_contrasting(img)
     if return_type == 'Image':
         return img
-    img = np.array(img)
+    img = np.ascontiguousarray(np.array(img))
     if return_type == 'ndarray':
         return img
     return torch.tensor(img.transpose((2, 0, 1)))
@@ -263,6 +327,10 @@ def save_layout_img(img0, categories, one_out, save_path, key='position'):
         box = one_box[key]
         xyxy = [box[0, 0], box[0, 1], box[2, 0], box[2, 1]]
         label = str(_type)
+        if 'score' in one_box:
+            label += f', Score: {one_box["score"]:.2f}'
+        if 'col_number' in one_box:
+            label += f', Col: {one_box["col_number"]}'
         plot_one_box(
             xyxy,
             img0,
@@ -944,7 +1012,7 @@ def merge_line_texts(
     return re.sub(rf'{line_sep}+', line_sep, outs)  # 把多个 '\n' 替换为 '\n'
 
 
-def prepare_model_files(root, model_info) -> Path:
+def prepare_model_files(root, model_info, mirror_url='https://hf-mirror.com') -> Path:
     model_root_dir = Path(root) / MODEL_VERSION
     model_dir = model_root_dir / model_info['local_model_id']
     if model_dir.is_dir() and list(model_dir.glob('**/[!.]*')):
@@ -952,10 +1020,50 @@ def prepare_model_files(root, model_info) -> Path:
     assert 'hf_model_id' in model_info
     model_dir.mkdir(parents=True)
     download_cmd = f'huggingface-cli download --repo-type model --resume-download --local-dir-use-symlinks False {model_info["hf_model_id"]} --local-dir {model_dir}'
-    os.system(download_cmd)
+    subprocess.run(download_cmd, shell=True)
     # 如果当前目录下无文件，就从huggingface上下载
     if not list(model_dir.glob('**/[!.]*')):
         if model_dir.exists():
             shutil.rmtree(str(model_dir))
-        os.system('HF_ENDPOINT=https://hf-mirror.com ' + download_cmd)
+        # os.system('HF_ENDPOINT=https://hf-mirror.com ' + download_cmd)
+        env = os.environ.copy()
+        env['HF_ENDPOINT'] = mirror_url
+        subprocess.run(download_cmd, env=env, shell=True)
     return model_dir
+
+
+def prepare_model_files2(model_fp_or_dir, remote_repo, file_or_dir='file', mirror_url='https://hf-mirror.com'):
+    """
+    从远程指定的仓库下载模型文件。
+    Args:
+        model_fp_or_dir: 下载的模型文件会保存到此路径
+        remote_repo: 指定的远程仓库
+        file_or_dir: model_fp_or_dir 是文件路径还是目录路径。注：下载的都是目录
+        mirror_url: 指定的 HuggingFace 国内镜像网址；如果无法从 HuggingFace 官方仓库下载，会自动从此国内镜像下载。默认值为 'https://hf-mirror.com'
+    """
+    model_fp_or_dir = Path(model_fp_or_dir)
+    if file_or_dir == 'file':
+        if model_fp_or_dir.exists():
+            return model_fp_or_dir
+        model_dir = model_fp_or_dir.parent
+    else:
+        model_dir = model_fp_or_dir
+    if model_dir.exists():
+        shutil.rmtree(str(model_dir))
+    model_dir.mkdir(parents=True)
+    download_cmd = f'huggingface-cli download --repo-type model --resume-download --local-dir-use-symlinks False {remote_repo} --local-dir {model_dir}'
+    subprocess.run(download_cmd, shell=True)
+    download_status = False
+    if file_or_dir == 'file':
+        if model_fp_or_dir.exists():  # download failed above
+            download_status = True
+    else:  # model_dir 存在且非空，则下载成功
+        if model_dir.exists() and list(model_dir.glob('**/[!.]*')):
+            download_status = True
+    if not download_status:  # download failed above
+        if model_dir.exists():
+            shutil.rmtree(str(model_dir))
+        env = os.environ.copy()
+        env['HF_ENDPOINT'] = mirror_url
+        subprocess.run(download_cmd, env=env, shell=True)
+    return model_fp_or_dir

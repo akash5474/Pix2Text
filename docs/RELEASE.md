@@ -1,5 +1,56 @@
 # Release Notes
 
+# Update 2024.12.17: **V1.1.2.3** Released
+
+Major Changes:
+
+- Bugfix: Fixed issues related to downloading models on Windows.
+
+主要变更：
+
+- 修复了在 Windows 环境下下载模型的问题。
+
+
+# Update 2024.12.11: **V1.1.2.2** Released
+
+Major Changes:
+
+- Bugfix: Resolved issues related to serialization errors when handling ONNX Runtime session options by ensuring that non-serializable configurations are managed appropriately.
+
+主要变更：
+
+- 修复了与 ONNX Runtime session options 相关的序列化错误，通过确保不可序列化的配置信息在适当的管理下进行处理。
+
+
+# Update 2024.12.02: **V1.1.2.1** Released
+
+Major Changes:
+
+* Fixed an error in `fetch_column_info()@DocYoloLayoutParser`, thanks to Bin.
+
+主要变更：
+
+* 修复了 fetch_column_info()@DocYoloLayoutParser 中的错误，感谢网友 Bin 。
+
+
+# Update 2024.11.17: **V1.1.2** Released
+
+Major Changes:
+
+* A new layout analysis model [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO) has been integrated, improving the accuracy of layout analysis.
+* Bug fixes:
+  * When the text language is set to English only, a dedicated English OCR model is used to avoid including Chinese in the output.
+  * The processing logic for PNG images has been optimized, enhancing recognition performance.
+
+
+主要变更：
+
+* 版面分析模型加入 [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)，提升版面分析的准确性。
+* 修复 bugs：
+  * 在设置文本语言只有英语时，使用专门的英文 OCR 模型，避免输出中包含中文。
+  * 对 PNG 图片的处理逻辑进行了优化，提升了识别效果。
+
+
 # Update 2024.07.18: **V1.1.1.2** Released
 
 Major Changes:
